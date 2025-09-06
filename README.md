@@ -233,7 +233,7 @@ The authentication-key from the config.
 
 ![alt text](https://raw.githubusercontent.com/billchaison/juniper_snmp_auth_crack/main/jc00.png)
 
-The Engine ID from the cli or NMAP snmp-info script.
+The Engine ID from the cli or nmap snmp-info script.
 
 ![alt text](https://raw.githubusercontent.com/billchaison/juniper_snmp_auth_crack/main/jc01.png)
 
