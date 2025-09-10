@@ -247,7 +247,7 @@ The decoded authentication-key as hex from the cli or other open source tool.
 
 **Using keys directly from the config without cracking**
 
-You can also supply the authentication-key and privacy-key as hex from the decoded \\$9\\$ strings directly to the SNMP utils commands.
+You can also supply the authentication-key and privacy-key as hex from the decoded `$9$` strings directly to the SNMP utils commands.
 
 Example SNMP config section using "password" for authentication and "12345678" for privacy.
 
