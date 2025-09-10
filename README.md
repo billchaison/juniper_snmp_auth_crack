@@ -324,4 +324,212 @@ snmpget -v 3 -u snmpuser1 -l authPriv -3a SHA -3k 262aeb10bd4fcad298132dd0a46a81
    iso.3.6.1.2.1.1.6.0 = STRING: "My Juniper Lab"
 ```
 
+**juniper_snmp_priv_crack**
+
+source code for cracking the SNMP v3 privacy-key from the config.  Implementation and usage is similar to juniper_snmp_auth_crack.
+
+```c
+/*
+Juniper SNMP v3 privacy-key password recovery tool.  Bill Chaison, free to use under BSD-3-Clause.
+
+compile: gcc juniper_snmpv3_priv_crack.c -o juniper_snmpv3_priv_crack -lcrypto
+
+usage: juniper_snmpv3_priv_crack <mode> <engine ID hex> <priv-key hex> <wordlist>
+
+<mode>          = privacy-des
+                  privacy-aes128
+<engine ID hex> = Hex string obtained from "show snmp v3" the value of "Local engine ID:" without spaces.
+                  Or acquired from nmap script snmp-info and wireshark capture of the agent response msgAuthoritativeEngineID field.
+<priv-key hex>  = The hex string from the decoded $9$ reversible string in the config.
+                  (e.g.) "request system decrypt password $9$..." or https://github.com/mhite/junosdecode
+<wordlist>      = The path to your wordlist file, one password per line.
+
+(example test case for "12345678")
+juniper_snmpv3_priv_crack privacy-aes128 80000a4c0430 495a63bda2644ab600135d2ee0909b9f /home/user/snmp_passwords.txt
+
+Juniper converts privacy-password to privacy-key using RFC-3414 when stored in the config.
+Engine ID must be from 1 to 32 bytes long.
+Passwords must be from 8 to 1024 bytes long.
+*/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <string.h>
+#include <openssl/evp.h>
+
+#define MAXPWLEN 1024
+#define MINPWLEN 8
+#define MAXEIDLEN 32
+#define MINEIDLEN 1
+#define MAXKEYLEN 64
+
+int inkeybuflen = 0, trunckeybuflen = 0;
+int eidbuflen;
+u_char eidbuf[MAXEIDLEN * 2], inkeybuf[MAXKEYLEN * 2], outkeybuf[MAXKEYLEN * 2];
+const EVP_MD *halg;
+
+// adapted from RFC-3414
+void password_to_key(u_char *password, u_int passwordlen, u_char *engineID, u_int engineLength, u_char *key)
+{
+   EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+   u_char *cp, password_buf[MAXPWLEN];
+   u_long password_index = 0;
+   u_long count = 0, i;
+
+   EVP_DigestInit(ctx, halg);
+   while(count < 1048576)
+   {
+      cp = password_buf;
+      for(i = 0; i < 64; i++)
+      {
+         *cp++ = password[password_index++ % passwordlen];
+      }
+      EVP_DigestUpdate(ctx, (const unsigned char *)password_buf, 64);
+      count += 64;
+   }
+   EVP_DigestFinal(ctx, key, NULL);
+   memcpy(password_buf, key, inkeybuflen);
+   memcpy(password_buf + inkeybuflen, engineID, engineLength);
+   memcpy(password_buf + inkeybuflen + engineLength, key, inkeybuflen);
+   EVP_DigestInit(ctx, halg);
+   EVP_DigestUpdate(ctx, (const unsigned char *)password_buf, (inkeybuflen * 2) + engineLength);
+   EVP_DigestFinal(ctx, key, NULL);
+   EVP_MD_CTX_free(ctx);
+}
+
+void usage(char *arg)
+{
+   printf("usage: %s <mode> <engine ID hex> <priv-key hex> <wordlist>\n\n", arg);
+   printf("<mode> = privacy-des\n");
+   printf("         privacy-aes128\n");
+   printf("<engine ID hex> = Hex string obtained from \"show snmp v3\" the value of\n");
+   printf("                  \"Local engine ID:\" without spaces. Or acquired from nmap\n");
+   printf("                  script snmp-info and wireshark capture of the agent response\n");
+   printf("                  msgAuthoritativeEngineID field.\n");
+   printf("<priv-key hex> = The hex string from the decoded $9$ reversible string in the\n");
+   printf("                 config.\n");
+   printf("<wordlist> = The path to your wordlist file, one password per line.\n");
+}
+
+int parsehex(char *arg, int *buflen, u_char *buf, int min, int max)
+{
+   int arglen = strlen(arg);
+   int i, j;
+
+   if(arglen < (min * 2) || arglen > (max * 2)) return -1;
+   if(arglen % 2) return -1;
+   for(i = 0, j = 0; i < arglen; i += 2, j++)
+   {
+      if(arg[i] >= '0' && arg[i] <= '9')
+      {
+         *(buf + j) = (u_char)((arg[i] - '0') * 16);
+      }
+      else if(arg[i] >= 'a' && arg[i] <= 'f')
+      {
+         *(buf + j) = (u_char)((arg[i] - 'W') * 16);
+      }
+      else
+      {
+         return -1;
+      }
+      if(arg[i + 1] >= '0' && arg[i + 1] <= '9')
+      {
+         *(buf + j) += (u_char)(arg[i + 1] - '0');
+      }
+      else if(arg[i + 1] >= 'a' && arg[i + 1] <= 'f')
+      {
+         *(buf + j) += (u_char)(arg[i + 1] - 'W');
+      }
+      else
+      {
+         return -1;
+      }
+   }
+   *buflen = arglen / 2;
+
+   return 0;
+}
+
+int parseargs(char *argv[])
+{
+   int inhashlen = 0;
+
+   if(!strcmp(argv[1], "privacy-des")) { inkeybuflen = 20; trunckeybuflen = 16; halg = EVP_sha1(); } // truncated key is 1st 16 bytes of sha1.
+   if(!strcmp(argv[1], "privacy-aes128")) { inkeybuflen = 20; trunckeybuflen = 16; halg = EVP_sha1(); } // truncated key is 1st 16 bytes of sha1.
+   if(inkeybuflen == 0)
+   {
+      fprintf(stderr, "Error: invalid <mode> specified.\n");
+      return -1;
+   }
+   if(parsehex(argv[2], &eidbuflen, &eidbuf[0], MINEIDLEN, MAXEIDLEN))
+   {
+      fprintf(stderr, "Error: invalid string specified for <engine ID hex>.\n");
+      return -1;
+   }
+   if(parsehex(argv[3], &inhashlen, &inkeybuf[0], trunckeybuflen, trunckeybuflen))
+   {
+      fprintf(stderr, "Error: invalid string specified for <priv-key hex>.\n");
+      return -1;
+   }
+   if(inhashlen != trunckeybuflen)
+   {
+      fprintf(stderr, "Error: invalid string specified for <priv-key hex>.\n");
+      return -1;
+   }
+
+   return 0;
+}
+
+int main(int argc, char *argv[])
+{
+   u_char pw[1500];
+   u_int pwlen, h, i;
+   FILE *fp;
+
+   if(argc != 5)
+   {
+      usage(argv[0]);
+      return -1;
+   }
+   if(parseargs(argv))
+   {
+      return -1;
+   }
+   fp = fopen(argv[4], "r");
+   if(fp == NULL)
+   {
+      fprintf(stderr, "Error: could not open <wordlist>.\n");
+      return -1;
+   }
+   while(fgets(pw, 1400, fp) != NULL)
+   {
+      pw[strcspn(pw, "\r\n")] = 0;
+      pwlen = strlen(pw);
+      if(pwlen >= MINPWLEN && pwlen <= MAXPWLEN)
+      {
+         fprintf(stderr, "."); fflush(stderr); // hash mark test password.
+         password_to_key(pw, pwlen, eidbuf, eidbuflen, outkeybuf);
+         h = 0;
+         for(i = 0; i < trunckeybuflen; i++)
+         {
+            if(outkeybuf[i] == inkeybuf[i]) h++;
+         }
+         if(h == trunckeybuflen)
+         {
+            printf("\nSUCCESS: %s\n", pw);
+            return 0;
+         }
+      }
+      else
+      {
+         fprintf(stderr, "x"); fflush(stderr); // hash mark skip password.
+      }
+   }
+   fclose(fp);
+   printf("\nFAILED: password not recovered.\n");
+
+   return 1;
+}
+```
 
