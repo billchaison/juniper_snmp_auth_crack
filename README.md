@@ -247,7 +247,7 @@ The decoded authentication-key as hex from the cli or other open source tool.
 
 **Using keys directly from the config without cracking**
 
-You can also supply the authentication-key and privacy-key as hex from the decoded $9$ strings directly to the SNMP utils commands.
+You can also supply the authentication-key and privacy-key as hex from the decoded \$9\$ strings directly to the SNMP utils commands.
 
 Example SNMP config section using "password" for authentication and "12345678" for privacy.
 
@@ -302,9 +302,12 @@ Decoding the authentication-key and privacy-key using the cli or other open sour
 
 ```
 $9$PTn/0BIhyl.PF/AtIRNdVbgoZGimPQDjPQn6u0BIEhSeM8X7VwXxUjq.5TRhcSrvXxdVs20BNdwYoaZUjifTz36/tuoJAp0BEhrevLX-Vb24oGlK87
+
    262aeb10bd4fcad298132dd0a46a818b85ccaafc
 
+
 $9$f5n/1RheM8QFlK8LN-bs2goGDjqPTzHk0B1RSylKMLX-24aJUjdVk.5T3nevMWLNVwYJZjKM4aZDkqtu0BSrKvLxdbO1
+
    495a63bda2644ab600135d2ee0909b9f
 ```
 
@@ -312,10 +315,12 @@ These can be used as arguments to snmpget.
 
 ```
 snmpget -v 3 -u snmpuser1 -l authPriv -3a SHA -3k 262aeb10bd4fcad298132dd0a46a818b85ccaafc -x AES -3K 495a63bda2644ab600135d2ee0909b9f 192.168.122.45 .1.3.6.1.2.1.1.1.0
+
    iso.3.6.1.2.1.1.1.0 = STRING: "My Juniper Router"
 
 
 snmpget -v 3 -u snmpuser1 -l authPriv -3a SHA -3k 262aeb10bd4fcad298132dd0a46a818b85ccaafc -x AES -3K 495a63bda2644ab600135d2ee0909b9f 192.168.122.45 .1.3.6.1.2.1.1.6.0
+
    iso.3.6.1.2.1.1.6.0 = STRING: "My Juniper Lab"
 ```
 
